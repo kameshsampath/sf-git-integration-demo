@@ -6,135 +6,107 @@ A quick demo of [Snowflake's Git integration](https://docs.snowflake.com/en/deve
 
 - Snowflake [Trial Account](https://signup.snowflake.com/)
 - [GitHub](https://github.com) Account
-- Familiar with Snowflake [SQL Worksheets](https://docs.snowflake.com/en/user-guide/ui-worksheet)
+- SNOW CLI [SNOW CLI](https://docs.snowflake.com/en/developer-guide/snowflake-cli/index)
 
-## Setup
+### Snowflake Environment
 
-For the this [repository](https://github.com/kameshsampath/sf-git-integration-demo.git) to your GitHub account.
+Create a database, schema and a warehouse to use to hold all the git repos and related objects
 
-### Setup Git Integration
-
->[!NOTE]
-> All the commands in this demo will be executed from SQL worksheet.
-
-### Setup Database/Schema/WareHouse
-
-All objects/resources that we create in Snowflake are confined to a DB. Let us create demo database for this exercise,
-
-```sql
--- Use role that has permissions to create API Integration
-USE ROLE ACCOUNTADMIN;
-
--- Craete and use the warehouse that your session
-CREATE WAREHOUSE IF NOT EXISTS KAMESH_DEMOS_S;
-USE WAREHOUSE KAMESH_DEMOS_S;
-
--- Database to hold all the objects
-CREATE OR REPLACE DATABASE KAMESH_GIT_REPOS;
--- Use the created database
-USE DATABASE KAMESH_GIT_REPOS;
-
--- Create schema to hold all github repositories
-CREATE OR REPLACE SCHEMA GITHUB;
-USE SCHEMA GITHUB;
+```shell
+snow sql --stdin <<EOF
+CREATE DATABASE IF NOT EXISTS MY_GIT_REPOS;
+CREATE SCHEMA IF NOT EXISTS GITHUB;
+CREATE WAREHOUSE IF NOT EXISTS MY_GIT_WH;
+EOF
 ```
 
-### API Integration
+We will set them as our default datbase, schema and warehouse for the rest of the demo,
 
-To interact with Git we need to create a [API Integration](https://docs.snowflake.com/en/sql-reference/sql/create-api-integration) object. We can specify the prefixes i.e. GitHub organisation or user url.
-
-In the following example we create an integration to my GitHub user url `https://github.com/kameshsampath`. 
-
-> [!IMPORTANT]
-> Make use to update `https://github.com/kameshsampath` to your org/user user.
-
-```sql
-CREATE API INTEGRATION IF NOT EXISTS  kameshsampath_git
-    API_PROVIDER = git_https_api
-    -- allowed orgs and repositories
-    API_ALLOWED_PREFIXES = ('https://github.com/kameshsampath')
-    ENABLED = TRUE;
+```shell
+export SNOWFLAKE_CONNECTIONS_TRIAL_DATABASE='MY_GIT_REPOS'
+export SNOWFLAKE_CONNECTIONS_TRIAL_SCHEMA='GITHUB'
+export SNOWFLAKE_CONNECTIONS_TRIAL_WAREHOUSE='MY_GIT_WH'
 ```
 
-### Create Git Repository
+### Create Git Repos
 
-With integration created let us use it to create the Git repository object,
+Set few variables that we can interploate later in the script,
 
-```sql
-CREATE GIT REPOSITORY IF NOT EXISTS git_integration_demo
-    API_INTEGRATION = kameshsampath_git
-    ORIGIN = 'https://github.com/kameshsampath/sf-git-integration-demo.git';
+```shell
+export GIT_REPO_NAME='MY_GIT_WH'
 ```
 
-> [!IMPORTANT]
-> Make use to update `https://github.com/kameshsampath/sf-git-integration-demo.git` to your fork.
+#### Git Integration Demo
 
-If we want to pull from private repository we need to pass the `GIT_CREDENTIALS` parameter. (e.g.) 
-
-Create a secret to hold GitHub PAT,
-
-```sql
-CREATE SECRET IF NOT EXISTS my_gh_pat
-   TYPE = password
-   USERNAME='your gh user'
-   PASSWORD='ghp_xxxxxxxx';
+```shell
+#https://github.com/kameshsampath/sf-git-integration-demo.git
+snow git setup "$GIT_REPO_NAME"
 ```
 
-Then use the `my_gh_pat` to the Git Repository creation command like,
+* `Repo URL`: https://github.com/kameshsampath/sf-git-integration-demo.git
+* Select N to secret as this`sf-git-integration-demo` is public repo
+* Default to create an git API integration
 
-```sql
-CREATE GIT REPOSITORY IF NOT EXISTS git_integration_demo
-    API_INTEGRATION = your_integration_name
-    GIT_CREDENTIALS = my_gh_pat
-    ORIGIN = 'some private GH repo';
+Fetch all branches, tags and commits,
+
+```shell
+snow git fetch "$GIT_REPO_NAME"
 ```
 
-### Run the SQL
+List all branches
 
-Refresh the respository to pull the latest chages or commits,
-
-```sql
-ALTER GIT REPOSITORY git_integration_demo FETCH;
+```shell
+snow git list-branches "$GIT_REPO_NAME"
 ```
 
-We can list the files from branches, tags or even commit hashes,
+List all tags
 
-#### From branch
-
-List all files on branch `main`,
-
-```sql
-ls @git_integration_demo/branches/main;
+```shell
+snow git list-tags "$GIT_REPO_NAME"
 ```
 
-#### From tags
+List all files on branch snow-cli,
 
-List all files on tag `v0.0.1`
-
-```sql
-ls @git_integration_demo/tags/v0.0.1;
+```shell
+snow git list-files @"$GIT_REPO_NAME"/branches/snow --pattern '.*\.sql'
 ```
 
-#### From commit hashes
+## Run SQL from Git Repo
 
-List all files on a commit with hash `7729e75`,
+We will create a simple `TODOS` table and load the data from `todos.sql`.
 
-```sql
-ls @git_integration_demo/commits/7729e75;
+To make the setup and tear down easy and customizable, let use the following env
+
+```shell
+export TODO_WH='TODO_APP_WH'
+export TODO_DB_NAME='TODO_APP_DB'
+export TODO_SCHEMA_NAME='DATA'
+export GIT_BRANCH="$(git rev-parse --abbrev-ref HEAD)"
 ```
 
-For this demo we can use the branch `main` and run the file called [demo.sql](./demo.sql) which creates a table named `TODOS`.
+Setup `kamesh_demo` database and tables,
 
-```sql
-EXECUTE IMMEDIATE FROM @git_integration_demo/branches/main/demo.sql;
+```shell
+snow git execute @"$GIT_REPO_NAME"/branches/snow/todos.sql \
+  --variable "db_name=$TODO_DB_NAME" \
+  --variable "schema_name=$TODO_SCHEMA_NAME" \
+  --variable "wh_name=$TODO_WH" \
+  --variable "git_repo_name=$GIT_REPO_NAME" \
+  --variable "git_branch=$GIT_BRANCH"
+```
+## Cleanup
+
+```shell
+snow git execute @"$GIT_REPO_NAME"/branches/snow/todos.sql \
+  --variable "db_name=$TODO_DB_NAME" \
+  --variable "schema_name=$TODO_SCHEMA_NAME" \
+  --variable "wh_name=$TODO_WH" \
+  --variable "git_repo_name=$GIT_REPO_NAME" \
+  --variable "git_branch=$GIT_BRANCH"
 ```
 
-If all went well you should see the results with rows from `TODOS` table.
+Verify clean up
 
-## Cleanup 
-
-To clear all the objects created by the demo script run,
-
-```sql
-EXECUTE IMMEDIATE FROM @git_integration_demo/branches/main/cleanup.sql;
+```shell
+snow sql -q "SHOW DATABASES"
 ```

@@ -1,16 +1,17 @@
+--!jinja
 USE ROLE ACCOUNTADMIN;
 
-CREATE DATABASE IF NOT EXISTS KAMESH_DEMO_DB;
+CREATE DATABASE IF NOT EXISTS {{db_name}};
 
-CREATE WAREHOUSE IF NOT EXISTS KAMESH_DEMOS_S;
+CREATE WAREHOUSE IF NOT EXISTS {{wh_name}};
 
-USE WAREHOUSE KAMESH_DEMOS_S;
+USE WAREHOUSE {{wh_name}};
 
-USE DATABASE KAMESH_DEMO_DB;
+USE DATABASE {{db_name}};
 
-CREATE SCHEMA IF NOT EXISTS DATA;
+CREATE SCHEMA IF NOT EXISTS {{schema_name}};
 
-USE SCHEMA DATA;
+USE SCHEMA {{schema_name}};
 
 CREATE FILE FORMAT IF NOT EXISTS  csv_ff
     SKIP_HEADER=1;
@@ -23,7 +24,7 @@ CREATE OR REPLACE TABLE TODOS (
 );
 
 -- List files
-LS @KAMESH_GIT_REPOS.GITHUB.git_integration_demo/branches/main/;
+LS @{{git_repo_name}}/branches/{{git_branch}}/;
 
 -- Create  the stage to copy all files from git stage to current data stage
 CREATE STAGE IF NOT EXISTS git_data
@@ -32,7 +33,7 @@ CREATE STAGE IF NOT EXISTS git_data
 -- Copy fies from git into local stage
 COPY FILES
   INTO @git_data
-  FROM @KAMESH_GIT_REPOS.GITHUB.git_integration_demo/branches/main/todos.csv;
+  FROM @{{git_repo_name}}/branches/{{git_branch}}/todos.csv;
 
 -- Load the CSV into the table
 COPY INTO TODOS FROM @git_data/todos.csv 
